@@ -592,10 +592,11 @@ var FOCUS_TRAP_TEMPLATE = angular.element(
  * A service that is used for controlling/displaying panels on the screen.
  * @param {!angular.JQLite} $rootElement
  * @param {!angular.Scope} $rootScope
+ * @param {!angular.$q} $q
  * @param {!angular.$injector} $injector
  * @final @constructor @ngInject
  */
-function MdPanelService($rootElement, $rootScope, $injector) {
+function MdPanelService($rootElement, $rootScope, $q, $injector) {
   /**
    * Default config options for the panel.
    * Anything angular related needs to be done later. Therefore
@@ -621,7 +622,10 @@ function MdPanelService($rootElement, $rootScope, $injector) {
   /** @private {!Object} */
   this._config = {};
 
-  /** @private {!angular.$injector} */
+  /** @private @const */
+  this._$q = $q;
+
+  /** @private @const */
   this._$injector = $injector;
 
   /** @private {!angular.$injector} */
@@ -724,7 +728,7 @@ MdPanelService.prototype.newPanelPosition = function() {
  * @returns {MdPanelAnimation}
  */
 MdPanelService.prototype.newPanelAnimation = function() {
-  return new MdPanelAnimation();
+  return new MdPanelAnimation(this._$q);
 };
 
 
@@ -1088,9 +1092,11 @@ MdPanelRef.prototype._createPanel = function() {
                 getElement(self._config['attachTo']));
           }
 
-          self._addStyles();
           self._configureTrapFocus();
-          resolve(self);
+          self._addStyles().then(function() {
+            self._panelContainer.addClass(MD_PANEL_HIDDEN);
+            resolve(self);
+          }, reject);
         }, reject);
   });
 };
@@ -1098,6 +1104,7 @@ MdPanelRef.prototype._createPanel = function() {
 
 /**
  * Adds the styles for the panel, such as positioning and z-index.
+ * @return {!angular.$q.Promise}
  * @private
  */
 MdPanelRef.prototype._addStyles = function() {
@@ -1107,32 +1114,28 @@ MdPanelRef.prototype._addStyles = function() {
 
   if (this._config['fullscreen']) {
     this._panelEl.addClass('_md-panel-fullscreen');
-    return; // Don't setup positioning.
+    return this._$q.when(true); // Don't setup positioning.
   }
 
-  // Wait for angular to finish processing the template, then position it
-  // correctly. This is necessary so that the panel will have a defined height
-  // and width.
-  this._$rootScope['$$postDigest'](angular.bind(this, this._configurePosition));
-  this._panelContainer.addClass(MD_PANEL_HIDDEN);
-};
-
-
-/**
- * Configure the position of the panel.
- * @private
- */
-MdPanelRef.prototype._configurePosition = function() {
   var positionConfig = this._config['position'];
+  if (!positionConfig) {
+    return this._$q.when(true);
+  }
 
-  if (!positionConfig) { return; }
-
-  this._panelEl.css('position', 'fixed');
-  this._panelEl.css('top', positionConfig.getTop(this._panelEl));
-  this._panelEl.css('bottom', positionConfig.getBottom(this._panelEl));
-  this._panelEl.css('left', positionConfig.getLeft(this._panelEl));
-  this._panelEl.css('right', positionConfig.getRight(this._panelEl));
-  this._panelEl.css('transform', positionConfig.getTransform());
+  var self = this;
+  return this._$q(function(resolve) {
+    // Wait for angular to finish processing the template, then position it
+    // correctly. This is necessary so that the panel will have a defined
+    // height and width.
+    self._$rootScope['$$postDigest'](function () {
+      self._panelEl.css('top', positionConfig.getTop(self._panelEl));
+      self._panelEl.css('bottom', positionConfig.getBottom(self._panelEl));
+      self._panelEl.css('left', positionConfig.getLeft(self._panelEl));
+      self._panelEl.css('right', positionConfig.getRight(self._panelEl));
+      self._panelEl.css('transform', positionConfig.getTransform());
+      resolve(self);
+    });
+  });
 };
 
 
@@ -1751,9 +1754,13 @@ MdPanelPosition.prototype._calculatePanelPosition = function(panelEl) {
  *   animation: panelAnimation
  * });
  *
+ * @param {!angular.$q} $q
  * @final @constructor
  */
-function MdPanelAnimation() {
+function MdPanelAnimation($q) {
+  /** @private @const */
+  this._$q = $q;
+
   /**
    * @private {{element: !angular.JQLite|undefined, bounds: !DOMRect}|
    *    undefined}
@@ -1872,61 +1879,94 @@ MdPanelAnimation.prototype.animateOpen = function(panelEl, animator) {
   this._fixBounds(panelEl);
   var animationOptions = {};
   var reverseAnimationOptions = {};
-  var openFrom = animator.toTransformCss("");
-  var openTo = animator.toTransformCss("");
-  var closeFrom = animator.toTransformCss("");
-  var closeTo = animator.toTransformCss("");
+
+  var panelTransform = panelEl[0].style.transform || '';
+
+  var openFrom = animator.toTransformCss(panelTransform);
+  var openTo = animator.toTransformCss(panelTransform);
+  var closeFrom = animator.toTransformCss(panelTransform);
+  var closeTo = animator.toTransformCss(panelTransform);
+
 
   switch (this._animationClass) {
     case MdPanelAnimation.animation.SLIDE:
+      // Slide should start with opacity: 1.
+      panelEl.css('opacity', '1');
+
       animationOptions = {
-        transitionInClass: '_md-panel-animate-slide-in _md-panel-shown',
-        transitionOutClass: '_md-panel-animate-slide-out'
+        transitionInClass: '_md-panel-animate-enter'
       };
       reverseAnimationOptions = {
-        transitionOutClass: '_md-panel-animate-slide-in _md-panel-shown',
-        transitionInClass: '_md-panel-animate-slide-out'
+        transitionInClass: '_md-panel-animate-leave'
       };
-      openFrom = animator.toTransformCss(animator.calculateSlideToOrigin(
-          panelEl, this._openFrom) || "");
-      closeTo = animator.toTransformCss(animator.calculateSlideToOrigin(
-          panelEl, this._closeTo));
+      var openSlide = animator.calculateSlideToOrigin(
+          panelEl, this._openFrom) || '';
+      openFrom = animator.toTransformCss(openSlide + ' ' + panelTransform);
+
+      var closeSlide = animator.calculateSlideToOrigin(
+          panelEl, this._closeTo) || '';
+      closeTo = animator.toTransformCss(closeSlide + ' ' + panelTransform);
       break;
     case MdPanelAnimation.animation.SCALE:
       animationOptions = {
-        transitionInClass: '_md-panel-animate-scale-in _md-panel-shown',
-        transitionOutClass: '_md-panel-animate-scale-out'
+        transitionInClass: '_md-panel-animate-enter'
       };
       reverseAnimationOptions = {
-        transitionOutClass: '_md-panel-animate-scale-in _md-panel-shown',
-        transitionInClass: '_md-panel-animate-scale-out'
+        transitionInClass: '_md-panel-animate-scale-out _md-panel-animate-leave'
       };
-      openFrom = animator.toTransformCss(animator.calculateZoomToOrigin(
-          panelEl, this._openFrom) || "");
-      closeTo = animator.toTransformCss(animator.calculateZoomToOrigin(
-          panelEl, this._closeTo));
+      var openSlide = animator.calculateZoomToOrigin(
+              panelEl, this._openFrom) || '';
+      openFrom = animator.toTransformCss(openSlide + ' ' + panelTransform);
+
+      var closeSlide = animator.calculateZoomToOrigin(
+              panelEl, this._closeTo) || '';
+      closeTo = animator.toTransformCss(closeSlide + ' ' + panelTransform);
       break;
     case MdPanelAnimation.animation.FADE:
       animationOptions = {
-        transitionInClass: '_md-panel-animate-fade-in _md-panel-shown',
-        transitionOutClass: '_md-panel-animate-fade-out'
+        transitionInClass: '_md-panel-animate-enter'
       };
       reverseAnimationOptions = {
-        transitionOutClass: '_md-panel-animate-fade-in _md-panel-shown',
-        transitionInClass: '_md-panel-animate-fade-out'
+        transitionInClass: '_md-panel-animate-fade-out _md-panel-animate-leave'
       };
       break;
     default:
+
       if (angular.isString(this._animationClass)) {
         animationOptions = {
-          transitionInClass: this._animationClass + ' _md-panel-shown'
+          transitionInClass: this._animationClass
         };
       } else {
+        // Just don't ask... be sad. :(
+        panelEl[0].style.transform = '';
+        panelEl.addClass(this._animationClass['open']);
+        var style = window.getComputedStyle(panelEl[0]);
+        var transform = style.getPropertyValue('transform') ||
+            style.getPropertyValue('-webkit-transform');
+
+        if (transform.search('matrix') != -1) {
+          var values = transform.split('(')[1].split(')')[0].split(',');
+          var cos = values[0];
+          var sin = values[1];
+          var angle = Math.round(Math.atan2(sin, cos) * (180 / Math.PI));
+          transform = 'rotate(' + angle + 'deg)';
+        }
+
+        openFrom = animator.toTransformCss(transform + ' ' + panelTransform);
+        panelEl.removeClass(this._animationClass['open']);
+
+        panelEl.addClass(this._animationClass['close']);
+        transform = window.getComputedStyle(panelEl[0]).transform;
+        closeTo = animator.toTransformCss(transform + ' ' + panelTransform);
+        panelEl.removeClass(this._animationClass['close']);
+
+        panelEl[0].style.transform = panelTransform;
+
         animationOptions = {
           transitionInClass: this._animationClass['open'] + ' _md-panel-shown'
         };
         reverseAnimationOptions = {
-          transitionInClass: this._animationClass['close']
+          transitionInClass: this._animationClass['close'] + ' _md-panel-shown'
         };
       }
   }

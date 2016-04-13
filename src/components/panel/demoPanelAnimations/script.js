@@ -5,17 +5,16 @@ angular.module('panelAnimationsDemo', ['ngMaterial'])
 
 function AnimationCtrl($mdPanel) {
   this._mdPanel = $mdPanel;
-  this.openFrom = 'button';
-  this.closeTo = 'button';
-  this.animationType = 'none';
+  this.openFrom = 'corner';
+  this.closeTo = 'corner';
+  this.animationType = 'slide';
 }
 
 
 AnimationCtrl.prototype.showDialog = function() {
   var position = this._mdPanel.newPanelPosition()
       .absolute()
-      .right()
-      .top();
+      .center();
 
   var animation = this._mdPanel.newPanelAnimation();
 
@@ -79,7 +78,10 @@ AnimationCtrl.prototype.showDialog = function() {
     panelClass: 'demo-dialog-example',
     position: position,
     trapFocus: true,
-    zIndex: 150
+    zIndex: 150,
+    clickOutsideToClose: true,
+    clickEscapeToClose: true,
+    focusOnOpen: true
   };
 
   this._panelRef = this._mdPanel.open(config);
