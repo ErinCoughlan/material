@@ -1837,6 +1837,9 @@ MdPanelPosition.prototype._calculatePanelPosition = function(panelEl) {
  * @final @constructor
  */
 function MdPanelAnimation($injector) {
+  /** @private @const {!angular.$mdConstant} */
+  this._$mdConstant = $injector.get('$mdConstant');
+
   /** @private @const {!angular.$mdUtil} */
   this._$mdUtil = $injector.get('$mdUtil');
 
@@ -1994,6 +1997,8 @@ MdPanelAnimation.prototype.animateOpen = function(panelEl) {
 
     default:
       if (angular.isString(this._animationClass)) {
+        //var transform = this.calculateTransform(panelEl, this._animationClass);
+
         animationOptions = {
           transitionInClass: this._animationClass
         };
@@ -2010,6 +2015,39 @@ MdPanelAnimation.prototype.animateOpen = function(panelEl) {
 
   return animator
       .translate3d(panelEl, openFrom, openTo, animationOptions);
+};
+
+
+/**
+ * Calculates the transforms in the user's CSS class by:
+ *   1. Adding the class to the panel in the DOM.
+ *   2. Getting the transform matrix.
+ *   3. Performing matrix math to extract the transforms.
+ *   4. Removing the class so it can be animated in/out on open/close.
+ *
+ * @param {!angular.JQLite} panelEl
+ * @param {string} cssClass The class to get the transform for.
+ * @return {string} transform
+ */
+MdPanelAnimation.prototype.calculateTransform = function(panelEl, cssClass) {
+  debugger;
+  var originalTransform = panelEl[0].style.transform;
+  panelEl[0].style.transform = '';
+  panelEl.addClass(cssClass);
+
+  var style = window.getComputedStyle(panelEl[0]);
+
+  // Use the vendor prefixed version of transform.
+  var prefixedTransform = self._$mdConstant.CSS.TRANSFORM;
+  var transform = style.getPropertyValue(prefixedTransform);
+
+  debugger;
+
+
+  // Cleanup.
+  panelEl.removeClass(cssClass);
+  panelEl[0].style.transform = originalTransform;
+  return '';
 };
 
 

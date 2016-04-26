@@ -7,15 +7,14 @@ function AnimationCtrl($mdPanel) {
   this._mdPanel = $mdPanel;
   this.openFrom = 'button';
   this.closeTo = 'button';
-  this.animationType = 'none';
+  this.animationType = 'custom';
 }
 
 
 AnimationCtrl.prototype.showDialog = function() {
   var position = this._mdPanel.newPanelPosition()
       .absolute()
-      .right()
-      .top();
+      .center();
 
   var animation = this._mdPanel.newPanelAnimation();
 
